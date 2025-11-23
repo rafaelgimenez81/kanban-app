@@ -1,5 +1,5 @@
 // src/auth.js
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail} from "firebase/auth";
 import { app } from "./firebase";
 
 const auth = getAuth(app);
@@ -22,6 +22,11 @@ export const logoutUser = () => {
 // Escutar mudanças de autenticação
 export const subscribeAuth = (callback) => {
   return onAuthStateChanged(auth, callback);
+};
+
+// Reset de senha
+export const resetPassword = (email) => {
+  return sendPasswordResetEmail(auth, email);
 };
 
 export { auth };

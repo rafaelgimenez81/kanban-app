@@ -1,4 +1,4 @@
-// src/App.jsx
+;// src/App.jsx (ATUALIZADO)
 import React, { useState, useEffect } from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { db } from "./firebase";
@@ -15,27 +15,38 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import LoginPage from "./LoginPage";
 import { subscribeAuth, logoutUser } from "./auth";
 
+function normalizeSetorKey(setor) {
+  // cria chaves 'entrada_torno', 'entrada_centro', 'entrada_mandriladora'
+  const s = setor.toLowerCase();
+  if (s.includes("torno")) return "entrada_torno";
+  if (s.includes("centro")) return "entrada_centro";
+  if (s.includes("mandril")) return "entrada_mandriladora";
+  // fallback
+  return `entrada_${s.replace(/\s+/g, "_")}`;
+}
+
 function App() {
-  const setores = ["Centro de Usiangem", "Torno CNC", "Mandriladora"];
+  const setores = ["Torno CNC", "Centro de Usinagem", "Mandriladora"];
 
   const [user, setUser] = useState(null); // controla usuário logado
   const [columns, setColumns] = useState({
-    entrada: [],
+    entrada_torno: [],
+    entrada_centro: [],
+    entrada_mandriladora: [],
     programando: [],
     terceiro: [],
-    saida: [],
   });
   const [finalizados, setFinalizados] = useState([]);
   const [form, setForm] = useState({
     os: "",
     desenho: "",
     cliente: "",
-    setor: setores[0],
+    setores: [], // agora array
     prazo: "",
     urgente: false,
   });
   const [editando, setEditando] = useState(null);
-  const [filtrosSetores, setFiltrosSetores] = useState([...setores]);
+  //const [filtrosSetores, setFiltrosSetores] = useState([...setores]);
   const [expandedCardId, setExpandedCardId] = useState(null);
   const [lockedCardId, setLockedCardId] = useState(null);
 
@@ -54,8 +65,26 @@ function App() {
       const cards = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
       // Entrada ordenada por urgência + prazo
-      const entradaCards = cards
-        .filter((c) => c.coluna === "entrada")
+      const entrada_torno = cards
+        .filter((c) => c.coluna === "entrada_torno")
+        .sort((a, b) => {
+          if (a.urgente && !b.urgente) return -1;
+          if (!a.urgente && b.urgente) return 1;
+          if (a.prazo && b.prazo) return new Date(a.prazo) - new Date(b.prazo);
+          return 0;
+        });
+
+      const entrada_centro = cards
+        .filter((c) => c.coluna === "entrada_centro")
+        .sort((a, b) => {
+          if (a.urgente && !b.urgente) return -1;
+          if (!a.urgente && b.urgente) return 1;
+          if (a.prazo && b.prazo) return new Date(a.prazo) - new Date(b.prazo);
+          return 0;
+        });
+
+      const entrada_mandriladora = cards
+        .filter((c) => c.coluna === "entrada_mandriladora")
         .sort((a, b) => {
           if (a.urgente && !b.urgente) return -1;
           if (!a.urgente && b.urgente) return 1;
@@ -64,10 +93,11 @@ function App() {
         });
 
       setColumns({
-        entrada: entradaCards,
+        entrada_torno,
+        entrada_centro,
+        entrada_mandriladora,
         programando: cards.filter((c) => c.coluna === "programando"),
         terceiro: cards.filter((c) => c.coluna === "terceiro"),
-        saida: cards.filter((c) => c.coluna === "saida"),
       });
 
       setFinalizados(cards.filter((c) => c.coluna === "finalizado"));
@@ -75,44 +105,48 @@ function App() {
     return () => unsub();
   }, [user]);
 
-  // -------- Criar cartão --------
+  // -------- Criar cartão(s) --------
   const addCard = async () => {
     if (!form.os.trim()) {
       alert("Informe a OS (campo obrigatório).");
       return;
     }
 
-    const id = crypto?.randomUUID ? crypto.randomUUID() : Date.now().toString();
+    if (!form.setores || form.setores.length === 0) {
+      alert("Selecione pelo menos um setor (entrada).");
+      return;
+    }
+
     const nowISO = new Date().toISOString();
 
-    const card = {
-      id,
-      os: form.os.trim(),
-      desenho: form.desenho.trim(),
-      cliente: form.cliente.trim(),
-      setor: form.setor,
-      prazo: form.prazo || "",
-      urgente: !!form.urgente,
-      programador: "",
-      programStartISO: null,
-      accProgramMs: 0,
-      programEndISO: null,
-      tempoProgramacaoHoras: null,
-      entradaISO: nowISO,
-      fimISO: null,
-      coluna: "entrada",
-    };
-
     try {
-      await setDoc(doc(collection(db, "cards"), card.id), card);
-      setForm({
-        os: "",
-        desenho: "",
-        cliente: "",
-        setor: setores[0],
-        prazo: "",
-        urgente: false,
-      });
+      // Para cada setor selecionado criamos um cartão independente
+      for (const setor of form.setores) {
+        const id = crypto?.randomUUID ? crypto.randomUUID() : Date.now().toString() + Math.random().toString(36).slice(2);
+        const coluna = normalizeSetorKey(setor);
+
+        const card = {
+          id,
+          os: form.os.trim(),
+          desenho: form.desenho.trim(),
+          cliente: form.cliente.trim(),
+          setor,
+          prazo: form.prazo || "",
+          urgente: !!form.urgente,
+          programador: "",
+          programStartISO: null,
+          accProgramMs: 0,
+          programEndISO: null,
+          tempoProgramacaoHoras: null,
+          entradaISO: nowISO,
+          fimISO: null,
+          coluna,
+        };
+
+        await setDoc(doc(collection(db, "cards"), card.id), card);
+      }
+
+      setForm({ os: "", desenho: "", cliente: "", setores: [], prazo: "", urgente: false });
     } catch (error) {
       console.error("Erro ao criar cartão:", error);
       alert("Falha ao criar cartão na rede.");
@@ -134,9 +168,19 @@ function App() {
   // -------- Finalizar cartão --------
   const finalizar = async (card) => {
     const fimISO = new Date().toISOString();
+
+    // se estiver em execução, acumula
+    let acc = card.accProgramMs || 0;
+    if (card.programStartISO) {
+      const startMs = new Date(card.programStartISO).getTime();
+      if (!isNaN(startMs)) acc += Date.now() - startMs;
+    }
+
+    const tempoProgramacaoHoras = acc ? (acc / 3600000).toFixed(2) : "0.00";
+
     await setDoc(
       doc(db, "cards", card.id),
-      { coluna: "finalizado", fimISO },
+      { coluna: "finalizado", fimISO, accProgramMs: acc, tempoProgramacaoHoras },
       { merge: true }
     );
   };
@@ -149,37 +193,55 @@ function App() {
     const fromKey = source.droppableId;
     const toKey = destination.droppableId;
 
+      // --- RESTRIÇÃO DE MOVIMENTO ---
+      const entradas = ["entrada_torno", "entrada_centro", "entrada_mandriladora"];
+      const destinosPermitidos = ["programando", "terceiro"];
+
+      // --- REGRA 1: Bloquear saída das entradas para qualquer coluna não permitida ---
+      if (entradas.includes(fromKey) && !destinosPermitidos.includes(toKey)) {
+       return;
+      }
+
+      // --- REGRA 2: Forçar retorno para a coluna de entrada correta ---
+     if (["programando", "terceiro"].includes(fromKey) && entradas.includes(toKey)) {
+     const movedCard = columns[fromKey][source.index];
+     const colunaCorreta = normalizeSetorKey(movedCard.setor);
+
+     if (toKey !== colunaCorreta) {
+       return;  // impede o drop errado
+       }
+     }
+
+      // Impede saída de entradas para qualquer coisa que não seja permitido
+      if (entradas.includes(fromKey) && !destinosPermitidos.includes(toKey)) {
+       return;
+      }
+
+    // se mesma coluna, apenas reordena
     if (fromKey === toKey) {
       const list = Array.from(columns[fromKey]);
       const [moved] = list.splice(source.index, 1);
       list.splice(destination.index, 0, moved);
       setColumns({ ...columns, [fromKey]: list });
-      await setDoc(doc(db, "cards", moved.id), { coluna: toKey }, { merge: true });
+      // opcional: atualizar ordem no Firestore se necessário
       return;
     }
 
     const currentCols = columns;
-    const listFrom = Array.from(currentCols[fromKey]);
-    const listTo = Array.from(currentCols[toKey]);
+    const listFrom = Array.from(currentCols[fromKey] || []);
+    const listTo = Array.from(currentCols[toKey] || []);
 
     const moved = { ...listFrom[source.index] };
     if (!moved) return;
 
-    if (toKey === "programando" || toKey === "terceiro") {
-      const resp = window.prompt(
-        "Digite o nome do programador:",
-        moved.programador || ""
-      );
-      if (!resp || !resp.trim()) return;
+    // Se movendo para programando ou terceiro, pedir programador (se não tiver)
+    if ((toKey === "programando" || toKey === "terceiro") && !moved.programador) {
+      const resp = window.prompt("Digite o nome do programador:", moved.programador || "");
+      if (!resp || !resp.trim()) return; // cancela a ação
       moved.programador = resp.trim();
     }
 
-    if (toKey === "saida" && !moved.programador) {
-      alert("Defina o programador antes de enviar para Saída.");
-      return;
-    }
-
-    listFrom.splice(source.index, 1);
+    // Se movendo para uma entrada (voltar para entrada), fechamos tempo de programação
     const now = Date.now();
 
     if ((fromKey === "programando" || fromKey === "terceiro") && moved.programStartISO) {
@@ -190,25 +252,13 @@ function App() {
       moved.programStartISO = null;
     }
 
+    // Se movendo para programando/terceiro iniciamos contagem
     if (toKey === "programando" || toKey === "terceiro") {
       if (!moved.programStartISO) moved.programStartISO = new Date(now).toISOString();
     }
 
-    if (toKey === "saida") {
-      if (moved.programStartISO) {
-        const startMs = new Date(moved.programStartISO).getTime();
-        if (!isNaN(startMs)) {
-          moved.accProgramMs = (moved.accProgramMs || 0) + (now - startMs);
-        }
-        moved.programStartISO = null;
-      }
-      moved.programEndISO = new Date(now).toISOString();
-      moved.tempoProgramacaoHoras = moved.accProgramMs
-        ? (moved.accProgramMs / 3600000).toFixed(2)
-        : "0.00";
-    }
-
     moved.coluna = toKey;
+    listFrom.splice(source.index, 1);
     listTo.splice(destination.index, 0, moved);
 
     setColumns({
@@ -230,6 +280,10 @@ function App() {
     if (card.programStartISO && card.programEndISO) {
       const diff = new Date(card.programEndISO) - new Date(card.programStartISO);
       return (diff / 3600000).toFixed(2);
+    }
+    if (card.programStartISO) {
+      const acc = (card.accProgramMs || 0) + (Date.now() - new Date(card.programStartISO).getTime());
+      return (acc / 3600000).toFixed(2);
     }
     return "-";
   };
@@ -274,7 +328,7 @@ function App() {
                 {card.prazo && <p><strong>Prazo:</strong> {formatarPrazo(card.prazo)}</p>}
                 {card.programador && <p><strong>Programador:</strong> {card.programador}</p>}
 
-                {card.coluna === "saida" && (
+                {(card.coluna === "programando" || card.coluna === "terceiro") && (
                   <>
                     <p><strong>Tempo de Programação:</strong> {calcularTempoProgramacao(card)}h</p>
                     <button
@@ -322,6 +376,23 @@ function App() {
     return <LoginPage onLogin={() => {}} />;
   }
 
+  // ordem das colunas conforme solicitado (A)
+  const colunaOrdem = [
+    "entrada_torno",
+    "entrada_centro",
+    "entrada_mandriladora",
+    "programando",
+    "terceiro",
+  ];
+
+  const colunaTitulos = {
+    entrada_torno: "Entrada - Torno CNC",
+    entrada_centro: "Entrada - Centro de Usinagem",
+    entrada_mandriladora: "Entrada - Mandriladora",
+    programando: "Programando",
+    terceiro: "Terceiro",
+  };
+
   return (
     <div className="p-4">
       {/* Header com botão sair */}
@@ -343,9 +414,25 @@ function App() {
         <input placeholder="OS" value={form.os} onChange={(e) => setForm({ ...form, os: e.target.value })} className="border p-2 rounded" />
         <input placeholder="Desenho" value={form.desenho} onChange={(e) => setForm({ ...form, desenho: e.target.value })} className="border p-2 rounded" />
         <input placeholder="Cliente" value={form.cliente} onChange={(e) => setForm({ ...form, cliente: e.target.value })} className="border p-2 rounded" />
-        <select value={form.setor} onChange={(e) => setForm({ ...form, setor: e.target.value })} className="border p-2 rounded">
-          {setores.map((s) => <option key={s}>{s}</option>)}
-        </select>
+
+        {/* seleção múltipla de setores (checkboxes) */}
+        <div className="col-span-1 border p-2 rounded flex flex-col">
+          {setores.map((s) => (
+            <label key={s} className="text-sm">
+              <input
+                type="checkbox"
+                checked={form.setores.includes(s)}
+                onChange={() => {
+                  if (form.setores.includes(s)) setForm({ ...form, setores: form.setores.filter((x) => x !== s) });
+                  else setForm({ ...form, setores: [...form.setores, s] });
+                }}
+                className="mr-2"
+              />
+              {s}
+            </label>
+          ))}
+        </div>
+
         <input type="date" value={form.prazo} onChange={(e) => setForm({ ...form, prazo: e.target.value })} className="border p-2 rounded" />
         <label className="flex items-center">
           <input type="checkbox" checked={form.urgente} onChange={(e) => setForm({ ...form, urgente: e.target.checked })} className="mr-2" />
@@ -354,37 +441,17 @@ function App() {
       </div>
       <button onClick={addCard} className="bg-green-500 text-white px-4 py-2 rounded">Adicionar OS</button>
 
-      {/* Filtros por setores */}
-      <div className="flex gap-2 mt-3 mb-3 flex-wrap">
-        {setores.map((s) => {
-          const ativo = filtrosSetores.includes(s);
-          return (
-            <button
-              key={s}
-              onClick={() => {
-                if (ativo) setFiltrosSetores(filtrosSetores.filter(f => f !== s));
-                else setFiltrosSetores([...filtrosSetores, s]);
-              }}
-              className={`px-3 py-1 rounded text-white transition-colors duration-200
-                ${ativo ? "bg-blue-800" : "bg-gray-500"}`}
-            >
-              {s}
-            </button>
-          );
-        })}
-      </div>
+
 
       {/* Board */}
       <DragDropContext onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-4 gap-4 mt-6">
-          {Object.keys(columns).map((col) => (
+        <div className="grid grid-cols-5 gap-4 mt-6">
+          {colunaOrdem.map((col) => (
             <Droppable droppableId={col} key={col}>
               {(provided) => (
                 <div ref={provided.innerRef} {...provided.droppableProps} className="bg-gray-100 rounded-2xl p-3 min-h-[300px]">
-                  <h2 className="font-bold capitalize mb-2">{col}</h2>
-                  {columns[col]
-                    .filter(c => filtrosSetores.includes(c.setor))
-                    .map((c, i) => renderCard(c, i))}
+                  <h2 className="font-bold capitalize mb-2">{colunaTitulos[col]}</h2>
+                  {columns[col].map((c, i) => renderCard(c, i))}
                   {provided.placeholder}
                 </div>
               )}
@@ -410,9 +477,7 @@ function App() {
             </tr>
           </thead>
           <tbody>
-            {finalizados
-              .filter(c => filtrosSetores.includes(c.setor))
-              .map((card) => (
+            {finalizados.map((card) => (
                 <tr key={card.id} className="text-center">
                   <td className="border px-2 py-1">{card.os}</td>
                   <td className="border px-2 py-1">{card.desenho}</td>
@@ -456,3 +521,12 @@ function App() {
 }
 
 export default App;
+
+
+/* ===================================== */
+/* src/LoginPage.jsx (ATUALIZADO)        */
+/* Substitua o seu LoginPage pelo conteúdo */
+/* ===================================== */
+
+// LoginPage.jsx deve ficar em um arquivo separado em src/LoginPage.jsx
+// Removi o código daqui para evitar o erro de import React duplicado.
