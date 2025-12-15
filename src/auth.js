@@ -23,7 +23,7 @@ export const logoutUser = () => {
 export const subscribeAuth = (callback) => {
   return onAuthStateChanged(auth, callback);
 };
-
+  
 // Reset de senha
 export const resetPassword = (email) => {
   return sendPasswordResetEmail(auth, email);

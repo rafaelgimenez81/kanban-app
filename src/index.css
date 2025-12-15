@@ -45,14 +45,14 @@
   padding-bottom: 20px;
 }
 
-.coluna {
+/* .coluna {
   background: #e0e0e0;
   padding: 10px;
   border-radius: 6px;
   min-width: 250px;
   max-height: 80vh;
   overflow-y: auto;
-}
+} */
 
 .coluna h2 {
   text-align: center;

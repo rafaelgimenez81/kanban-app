@@ -393,8 +393,59 @@ function App() {
     terceiro: "Terceiro",
   };
 
-  return (
-    <div className="p-4">
+  //return (
+    // <div className="p-4">
+    //   {/* Header com botão sair */}
+    //   <header className="flex justify-between items-center mb-4 bg-gray-800 text-white p-3 rounded-xl">
+    //     <h1 className="text-2xl font-bold">Kanban Programação</h1>
+    //     <div className="flex items-center gap-4">
+    //       <span>{user.email}</span>
+    //       <button
+    //         onClick={logoutUser}
+    //         className="bg-red-500 px-3 py-1 rounded hover:bg-red-600"
+    //       >
+    //         Sair
+    //       </button>
+    //     </div>
+    //   </header>
+
+    //   {/* Formulário */}
+    //   <div className="mb-3 grid grid-cols-6 gap-4">
+    //     <input placeholder="OS" value={form.os} onChange={(e) => setForm({ ...form, os: e.target.value })} className="border p-2 rounded" />
+    //     <input placeholder="Desenho" value={form.desenho} onChange={(e) => setForm({ ...form, desenho: e.target.value })} className="border p-2 rounded" />
+    //     <input placeholder="Cliente" value={form.cliente} onChange={(e) => setForm({ ...form, cliente: e.target.value })} className="border p-2 rounded" />
+
+    //     {/* seleção múltipla de setores (checkboxes) */}
+    //     <div className="col-span-1 border p-2 rounded flex flex-col">
+    //       {setores.map((s) => (
+    //         <label key={s} className="text-sm">
+    //           <input
+    //             type="checkbox"
+    //             checked={form.setores.includes(s)}
+    //             onChange={() => {
+    //               if (form.setores.includes(s)) setForm({ ...form, setores: form.setores.filter((x) => x !== s) });
+    //               else setForm({ ...form, setores: [...form.setores, s] });
+    //             }}
+    //             className="mr-2"
+    //           />
+    //           {s}
+    //         </label>
+    //       ))}
+    //     </div>
+
+    //     <input type="date" value={form.prazo} onChange={(e) => setForm({ ...form, prazo: e.target.value })} className="border p-2 rounded" />
+    //     <label className="flex items-center">
+    //       <input type="checkbox" checked={form.urgente} onChange={(e) => setForm({ ...form, urgente: e.target.checked })} className="mr-2" />
+    //       Urgente
+    //     </label>
+    //   </div>
+    //   <button onClick={addCard} className="bg-green-500 text-white px-4 py-2 rounded">Adicionar OS</button>
+return (
+  <div className="p-4">
+
+    {/* BLOCO FIXO DO TOPO */}
+    <div className="sticky top-0 z-50 bg-white pb-4">
+
       {/* Header com botão sair */}
       <header className="flex justify-between items-center mb-4 bg-gray-800 text-white p-3 rounded-xl">
         <h1 className="text-2xl font-bold">Kanban Programação</h1>
@@ -415,7 +466,7 @@ function App() {
         <input placeholder="Desenho" value={form.desenho} onChange={(e) => setForm({ ...form, desenho: e.target.value })} className="border p-2 rounded" />
         <input placeholder="Cliente" value={form.cliente} onChange={(e) => setForm({ ...form, cliente: e.target.value })} className="border p-2 rounded" />
 
-        {/* seleção múltipla de setores (checkboxes) */}
+        {/* seleção múltipla de setores */}
         <div className="col-span-1 border p-2 rounded flex flex-col">
           {setores.map((s) => (
             <label key={s} className="text-sm">
@@ -434,65 +485,85 @@ function App() {
         </div>
 
         <input type="date" value={form.prazo} onChange={(e) => setForm({ ...form, prazo: e.target.value })} className="border p-2 rounded" />
+
         <label className="flex items-center">
           <input type="checkbox" checked={form.urgente} onChange={(e) => setForm({ ...form, urgente: e.target.checked })} className="mr-2" />
           Urgente
         </label>
       </div>
-      <button onClick={addCard} className="bg-green-500 text-white px-4 py-2 rounded">Adicionar OS</button>
+
+      <div className="flex justify-between items-center mt-2">
+        {/* Botão esquerdo */}
+          <button
+           onClick={addCard}
+           className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+           >
+           Adicionar OS
+          </button>
+
+         {/* Botão direito */}
+           <button
+            onClick={() => window.open("/finalizados", "_blank")}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            >
+            Visualizar Finalizados
+           </button>
+  </div>
+
+    </div>
 
 
-
-      {/* Board */}
-      <DragDropContext onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-5 gap-4 mt-6">
+      {/* Colunas Board */}
+      {/* <DragDropContext onDragEnd={onDragEnd}>
+        <div className="grid grid-cols-5 gap-4 mt-6 h-[80vh]">
           {colunaOrdem.map((col) => (
             <Droppable droppableId={col} key={col}>
               {(provided) => (
-                <div ref={provided.innerRef} {...provided.droppableProps} className="bg-gray-100 rounded-2xl p-3 min-h-[300px]">
-                  <h2 className="font-bold capitalize mb-2">{colunaTitulos[col]}</h2>
-                  {columns[col].map((c, i) => renderCard(c, i))}
-                  {provided.placeholder}
+                <div ref={provided.innerRef} {...provided.droppableProps} className="bg-gray-100 rounded-2xl flex flex-col overflow-hidden h-full">
+                  <div className="sticky top-0 z-20 bg-gray-100 pt-3 pb-2">
+                    <h2 className="font-bold capitalize text-center">{colunaTitulos[col]}</h2>
+                  </div>
+                   <div className="flex-1 overflow-y-auto p-3">
+                    {columns[col].map((c, i) => renderCard(c, i))}
+                    {provided.placeholder}
+                  </div>
                 </div>
               )}
             </Droppable>
           ))}
         </div>
-      </DragDropContext>
+      </DragDropContext> */}
+<DragDropContext onDragEnd={onDragEnd}>
+  <div className="grid grid-cols-5 gap-4 mt-6">
+    {colunaOrdem.map((col) => (
+      <Droppable droppableId={col} key={col}>
+        {(provided) => (
+          <div className="bg-gray-100 rounded-2xl flex flex-col h-[80vh]">
 
-      {/* Finalizados */}
-      <div className="mt-8">
-        <h2 className="text-xl font-bold mb-2">Finalizados</h2>
-        <table className="w-full border border-gray-300">
-          <thead className="bg-gray-200">
-            <tr>
-              <th className="border px-2 py-1">OS</th>
-              <th className="border px-2 py-1">Desenho</th>
-              <th className="border px-2 py-1">Cliente</th>
-              <th className="border px-2 py-1">Setor</th>
-              <th className="border px-2 py-1">Prazo</th>
-              <th className="border px-2 py-1">Programador</th>
-              <th className="border px-2 py-1">Tempo</th>
-              <th className="border px-2 py-1">Fim</th>
-            </tr>
-          </thead>
-          <tbody>
-            {finalizados.map((card) => (
-                <tr key={card.id} className="text-center">
-                  <td className="border px-2 py-1">{card.os}</td>
-                  <td className="border px-2 py-1">{card.desenho}</td>
-                  <td className="border px-2 py-1">{card.cliente}</td>
-                  <td className="border px-2 py-1">{card.setor}</td>
-                  <td className="border px-2 py-1">{formatarPrazo(card.prazo)}</td>
-                  <td className="border px-2 py-1">{card.programador}</td>
-                  <td className="border px-2 py-1">{calcularTempoProgramacao(card)}h</td>
-                  <td className="border px-2 py-1">{card.fimISO ? new Date(card.fimISO).toLocaleString("pt-BR") : "-"}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      </div>
+            {/* Cabeçalho fixo */}
+            <div className="sticky top-[55rem] z-20 bg-gray-100 pt-3 pb-2">
+              <h2 className="font-bold capitalize text-center">
+                {colunaTitulos[col]}
+              </h2>
+            </div>
 
+            {/* Conteúdo rolável */}
+            <div
+              ref={provided.innerRef}
+              {...provided.droppableProps}
+              className="flex-1 overflow-y-auto p-3"
+            >
+              {columns[col].map((c, i) => renderCard(c, i))}
+              {provided.placeholder}
+            </div>
+          </div>
+        )}
+      </Droppable>
+    ))}
+  </div>
+</DragDropContext> 
+
+;
       {/* Modal editar */}
       {editando && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center">
