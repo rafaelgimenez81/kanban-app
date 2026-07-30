@@ -1,4 +1,4 @@
-;// src/App.jsx (ATUALIZADO)
+// src/App.jsx
 import React, { useState, useEffect } from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { db } from "./firebase";
@@ -15,6 +15,9 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import LoginPage from "./LoginPage";
 import { subscribeAuth, logoutUser } from "./auth";
 
+const ENTRADAS = ["entrada_torno", "entrada_centro", "entrada_mandriladora"];
+const DESTINOS_PERMITIDOS = ["programando", "terceiro"];
+
 function normalizeSetorKey(setor) {
   // cria chaves 'entrada_torno', 'entrada_centro', 'entrada_mandriladora'
   const s = setor.toLowerCase();
@@ -23,6 +26,28 @@ function normalizeSetorKey(setor) {
   if (s.includes("mandril")) return "entrada_mandriladora";
   // fallback
   return `entrada_${s.replace(/\s+/g, "_")}`;
+}
+
+// -------- Dias desde a entrada do cartão --------
+function calcularDias(entradaISO) {
+  if (!entradaISO) return 0;
+  const diffMs = Date.now() - new Date(entradaISO).getTime();
+  return Math.max(0, Math.floor(diffMs / 86400000));
+}
+
+// -------- Ordenação: urgente > prazo (mais próximo primeiro) > dias (mais antigo primeiro) --------
+function ordenarCards(cards) {
+  return [...cards].sort((a, b) => {
+    if (a.urgente !== b.urgente) return a.urgente ? -1 : 1;
+
+    const prazoA = a.prazo ? new Date(a.prazo).getTime() : Infinity;
+    const prazoB = b.prazo ? new Date(b.prazo).getTime() : Infinity;
+    if (prazoA !== prazoB) return prazoA - prazoB;
+
+    const diasA = calcularDias(a.entradaISO);
+    const diasB = calcularDias(b.entradaISO);
+    return diasB - diasA; // maior número de dias primeiro
+  });
 }
 
 function App() {
@@ -36,7 +61,6 @@ function App() {
     programando: [],
     terceiro: [],
   });
-  const [finalizados, setFinalizados] = useState([]);
   const [form, setForm] = useState({
     os: "",
     desenho: "",
@@ -44,11 +68,10 @@ function App() {
     setores: [], // agora array
     prazo: "",
     urgente: false,
+    materiaPrima: "",
   });
   const [editando, setEditando] = useState(null);
-  //const [filtrosSetores, setFiltrosSetores] = useState([...setores]);
   const [expandedCardId, setExpandedCardId] = useState(null);
-  const [lockedCardId, setLockedCardId] = useState(null);
 
   // -------- Controle de autenticação --------
   useEffect(() => {
@@ -64,43 +87,13 @@ function App() {
     const unsub = onSnapshot(collection(db, "cards"), (snap) => {
       const cards = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      // Entrada ordenada por urgência + prazo
-      const entrada_torno = cards
-        .filter((c) => c.coluna === "entrada_torno")
-        .sort((a, b) => {
-          if (a.urgente && !b.urgente) return -1;
-          if (!a.urgente && b.urgente) return 1;
-          if (a.prazo && b.prazo) return new Date(a.prazo) - new Date(b.prazo);
-          return 0;
-        });
-
-      const entrada_centro = cards
-        .filter((c) => c.coluna === "entrada_centro")
-        .sort((a, b) => {
-          if (a.urgente && !b.urgente) return -1;
-          if (!a.urgente && b.urgente) return 1;
-          if (a.prazo && b.prazo) return new Date(a.prazo) - new Date(b.prazo);
-          return 0;
-        });
-
-      const entrada_mandriladora = cards
-        .filter((c) => c.coluna === "entrada_mandriladora")
-        .sort((a, b) => {
-          if (a.urgente && !b.urgente) return -1;
-          if (!a.urgente && b.urgente) return 1;
-          if (a.prazo && b.prazo) return new Date(a.prazo) - new Date(b.prazo);
-          return 0;
-        });
-
       setColumns({
-        entrada_torno,
-        entrada_centro,
-        entrada_mandriladora,
+        entrada_torno: ordenarCards(cards.filter((c) => c.coluna === "entrada_torno")),
+        entrada_centro: ordenarCards(cards.filter((c) => c.coluna === "entrada_centro")),
+        entrada_mandriladora: ordenarCards(cards.filter((c) => c.coluna === "entrada_mandriladora")),
         programando: cards.filter((c) => c.coluna === "programando"),
         terceiro: cards.filter((c) => c.coluna === "terceiro"),
       });
-
-      setFinalizados(cards.filter((c) => c.coluna === "finalizado"));
     });
     return () => unsub();
   }, [user]);
@@ -133,6 +126,7 @@ function App() {
           setor,
           prazo: form.prazo || "",
           urgente: !!form.urgente,
+          materiaPrima: form.materiaPrima.trim(),
           programador: "",
           programStartISO: null,
           accProgramMs: 0,
@@ -146,7 +140,7 @@ function App() {
         await setDoc(doc(collection(db, "cards"), card.id), card);
       }
 
-      setForm({ os: "", desenho: "", cliente: "", setores: [], prazo: "", urgente: false });
+      setForm({ os: "", desenho: "", cliente: "", setores: [], prazo: "", urgente: false, materiaPrima: "" });
     } catch (error) {
       console.error("Erro ao criar cartão:", error);
       alert("Falha ao criar cartão na rede.");
@@ -193,29 +187,20 @@ function App() {
     const fromKey = source.droppableId;
     const toKey = destination.droppableId;
 
-      // --- RESTRIÇÃO DE MOVIMENTO ---
-      const entradas = ["entrada_torno", "entrada_centro", "entrada_mandriladora"];
-      const destinosPermitidos = ["programando", "terceiro"];
+    // --- REGRA 1: Bloquear saída das entradas para qualquer coluna não permitida ---
+    if (ENTRADAS.includes(fromKey) && !DESTINOS_PERMITIDOS.includes(toKey)) {
+      return;
+    }
 
-      // --- REGRA 1: Bloquear saída das entradas para qualquer coluna não permitida ---
-      if (entradas.includes(fromKey) && !destinosPermitidos.includes(toKey)) {
-       return;
+    // --- REGRA 2: Forçar retorno para a coluna de entrada correta ---
+    if (["programando", "terceiro"].includes(fromKey) && ENTRADAS.includes(toKey)) {
+      const movedCard = columns[fromKey][source.index];
+      const colunaCorreta = normalizeSetorKey(movedCard.setor);
+
+      if (toKey !== colunaCorreta) {
+        return; // impede o drop errado
       }
-
-      // --- REGRA 2: Forçar retorno para a coluna de entrada correta ---
-     if (["programando", "terceiro"].includes(fromKey) && entradas.includes(toKey)) {
-     const movedCard = columns[fromKey][source.index];
-     const colunaCorreta = normalizeSetorKey(movedCard.setor);
-
-     if (toKey !== colunaCorreta) {
-       return;  // impede o drop errado
-       }
-     }
-
-      // Impede saída de entradas para qualquer coisa que não seja permitido
-      if (entradas.includes(fromKey) && !destinosPermitidos.includes(toKey)) {
-       return;
-      }
+    }
 
     // se mesma coluna, apenas reordena
     if (fromKey === toKey) {
@@ -223,7 +208,6 @@ function App() {
       const [moved] = list.splice(source.index, 1);
       list.splice(destination.index, 0, moved);
       setColumns({ ...columns, [fromKey]: list });
-      // opcional: atualizar ordem no Firestore se necessário
       return;
     }
 
@@ -241,9 +225,8 @@ function App() {
       moved.programador = resp.trim();
     }
 
-    // Se movendo para uma entrada (voltar para entrada), fechamos tempo de programação
+    // Se saindo de programando/terceiro (voltando para entrada), pausa a contagem
     const now = Date.now();
-
     if ((fromKey === "programando" || fromKey === "terceiro") && moved.programStartISO) {
       const startMs = new Date(moved.programStartISO).getTime();
       if (!isNaN(startMs)) {
@@ -252,7 +235,7 @@ function App() {
       moved.programStartISO = null;
     }
 
-    // Se movendo para programando/terceiro iniciamos contagem
+    // Se entrando em programando/terceiro, retoma a contagem
     if (toKey === "programando" || toKey === "terceiro") {
       if (!moved.programStartISO) moved.programStartISO = new Date(now).toISOString();
     }
@@ -275,24 +258,24 @@ function App() {
     return new Date(prazo).toLocaleDateString("pt-BR");
   };
 
+  // Considera o tempo acumulado mesmo quando a contagem está pausada
   const calcularTempoProgramacao = (card) => {
-    if (card.tempoProgramacaoHoras) return card.tempoProgramacaoHoras;
-    if (card.programStartISO && card.programEndISO) {
-      const diff = new Date(card.programEndISO) - new Date(card.programStartISO);
-      return (diff / 3600000).toFixed(2);
-    }
     if (card.programStartISO) {
       const acc = (card.accProgramMs || 0) + (Date.now() - new Date(card.programStartISO).getTime());
       return (acc / 3600000).toFixed(2);
     }
-    return "-";
+    if (card.accProgramMs) {
+      return (card.accProgramMs / 3600000).toFixed(2);
+    }
+    if (card.tempoProgramacaoHoras) return card.tempoProgramacaoHoras;
+    return "0.00";
   };
 
   // -------- Renderizar cartão --------
   const renderCard = (card, index) => {
-    const isHovered = expandedCardId === card.id;
-    const isLocked = lockedCardId === card.id;
-    const isExpanded = isHovered || isLocked;
+    const isExpanded = expandedCardId === card.id;
+    const emAndamento = card.coluna === "programando" || card.coluna === "terceiro";
+    const dias = calcularDias(card.entradaISO);
 
     return (
       <Draggable key={card.id} draggableId={card.id} index={index}>
@@ -301,46 +284,58 @@ function App() {
             ref={provided.innerRef}
             {...provided.draggableProps}
             {...provided.dragHandleProps}
-            onMouseEnter={() => !isLocked && setExpandedCardId(card.id)}
-            onMouseLeave={() => !isLocked && setExpandedCardId(null)}
-            onClick={() => setLockedCardId(isLocked ? null : card.id)}
-            className={`rounded-xl shadow-md p-2 mb-2 cursor-pointer transition-all duration-300 ease-in-out
+            className={`rounded-xl shadow-md p-2 mb-2 transition-all duration-300 ease-in-out
               ${card.urgente ? "border-2 border-red-500 bg-red-50" : "bg-white"}
-              ${isExpanded ? "max-h-96" : "max-h-14 overflow-hidden"}
             `}
           >
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-bold text-lg text-gray-900">{card.os}</span>
                 <span className="text-xs text-gray-600 truncate">{card.desenho}</span>
+                <span className="text-xs text-gray-400">· {dias}d</span>
               </div>
-              {isExpanded ? (
-                <ChevronUp className="w-4 h-4 text-gray-500" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-gray-500" />
-              )}
+              <button
+                type="button"
+                aria-label={isExpanded ? "Recolher cartão" : "Expandir cartão"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpandedCardId(isExpanded ? null : card.id);
+                }}
+                className="p-1 shrink-0"
+              >
+                {isExpanded ? (
+                  <ChevronUp className="w-4 h-4 text-gray-500" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                )}
+              </button>
             </div>
+
+            {emAndamento && (
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-xs text-gray-700">
+                  <strong>Programador:</strong> {card.programador || "-"}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    finalizar(card);
+                  }}
+                  className="px-2 py-0.5 rounded bg-green-600 text-white text-xs"
+                >
+                  Finalizar
+                </button>
+              </div>
+            )}
 
             {isExpanded && (
               <div className="mt-2 text-sm text-gray-800 space-y-1">
                 <p><strong>Cliente:</strong> {card.cliente}</p>
                 <p><strong>Setor:</strong> {card.setor}</p>
                 {card.prazo && <p><strong>Prazo:</strong> {formatarPrazo(card.prazo)}</p>}
-                {card.programador && <p><strong>Programador:</strong> {card.programador}</p>}
-
-                {(card.coluna === "programando" || card.coluna === "terceiro") && (
-                  <>
-                    <p><strong>Tempo de Programação:</strong> {calcularTempoProgramacao(card)}h</p>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        finalizar(card);
-                      }}
-                      className="mt-2 px-3 py-1 rounded bg-green-600 text-white text-sm"
-                    >
-                      Finalizar
-                    </button>
-                  </>
+                {card.materiaPrima && <p><strong>Matéria Prima:</strong> {card.materiaPrima}</p>}
+                {emAndamento && (
+                  <p><strong>Tempo de Programação:</strong> {calcularTempoProgramacao(card)}h</p>
                 )}
 
                 <div className="flex justify-between mt-2">
@@ -393,137 +388,96 @@ function App() {
     terceiro: "Terceiro",
   };
 
-  //return (
-    // <div className="p-4">
-    //   {/* Header com botão sair */}
-    //   <header className="flex justify-between items-center mb-4 bg-gray-800 text-white p-3 rounded-xl">
-    //     <h1 className="text-2xl font-bold">Kanban Programação</h1>
-    //     <div className="flex items-center gap-4">
-    //       <span>{user.email}</span>
-    //       <button
-    //         onClick={logoutUser}
-    //         className="bg-red-500 px-3 py-1 rounded hover:bg-red-600"
-    //       >
-    //         Sair
-    //       </button>
-    //     </div>
-    //   </header>
+  return (
+    <div className="p-4">
+      {/* BLOCO FIXO DO TOPO */}
+      <div className="sticky top-0 z-50 bg-white pb-4">
+        {/* Header com botão sair */}
+        <header className="flex justify-between items-center mb-4 bg-gray-800 text-white p-3 rounded-xl">
+          <h1 className="text-2xl font-bold">Kanban Programação</h1>
+          <div className="flex items-center gap-4">
+            <span>{user.email}</span>
+            <button
+              onClick={logoutUser}
+              className="bg-red-500 px-3 py-1 rounded hover:bg-red-600"
+            >
+              Sair
+            </button>
+          </div>
+        </header>
 
-    //   {/* Formulário */}
-    //   <div className="mb-3 grid grid-cols-6 gap-4">
-    //     <input placeholder="OS" value={form.os} onChange={(e) => setForm({ ...form, os: e.target.value })} className="border p-2 rounded" />
-    //     <input placeholder="Desenho" value={form.desenho} onChange={(e) => setForm({ ...form, desenho: e.target.value })} className="border p-2 rounded" />
-    //     <input placeholder="Cliente" value={form.cliente} onChange={(e) => setForm({ ...form, cliente: e.target.value })} className="border p-2 rounded" />
+        {/* Formulário */}
+        <div className="mb-3 grid grid-cols-7 gap-4">
+          <input placeholder="OS" value={form.os} onChange={(e) => setForm({ ...form, os: e.target.value })} className="border p-2 rounded" />
+          <input placeholder="Desenho" value={form.desenho} onChange={(e) => setForm({ ...form, desenho: e.target.value })} className="border p-2 rounded" />
+          <input placeholder="Cliente" value={form.cliente} onChange={(e) => setForm({ ...form, cliente: e.target.value })} className="border p-2 rounded" />
 
-    //     {/* seleção múltipla de setores (checkboxes) */}
-    //     <div className="col-span-1 border p-2 rounded flex flex-col">
-    //       {setores.map((s) => (
-    //         <label key={s} className="text-sm">
-    //           <input
-    //             type="checkbox"
-    //             checked={form.setores.includes(s)}
-    //             onChange={() => {
-    //               if (form.setores.includes(s)) setForm({ ...form, setores: form.setores.filter((x) => x !== s) });
-    //               else setForm({ ...form, setores: [...form.setores, s] });
-    //             }}
-    //             className="mr-2"
-    //           />
-    //           {s}
-    //         </label>
-    //       ))}
-    //     </div>
+          {/* seleção múltipla de setores */}
+          <div className="col-span-1 border p-2 rounded flex flex-col">
+            {setores.map((s) => (
+              <label key={s} className="text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.setores.includes(s)}
+                  onChange={() => {
+                    if (form.setores.includes(s)) setForm({ ...form, setores: form.setores.filter((x) => x !== s) });
+                    else setForm({ ...form, setores: [...form.setores, s] });
+                  }}
+                  className="mr-2"
+                />
+                {s}
+              </label>
+            ))}
+          </div>
 
-    //     <input type="date" value={form.prazo} onChange={(e) => setForm({ ...form, prazo: e.target.value })} className="border p-2 rounded" />
-    //     <label className="flex items-center">
-    //       <input type="checkbox" checked={form.urgente} onChange={(e) => setForm({ ...form, urgente: e.target.checked })} className="mr-2" />
-    //       Urgente
-    //     </label>
-    //   </div>
-    //   <button onClick={addCard} className="bg-green-500 text-white px-4 py-2 rounded">Adicionar OS</button>
-return (
-  <div className="p-4">
+          <input type="date" value={form.prazo} onChange={(e) => setForm({ ...form, prazo: e.target.value })} className="border p-2 rounded" />
 
-    {/* BLOCO FIXO DO TOPO */}
-    <div className="sticky top-0 z-50 bg-white pb-4">
+          <input placeholder="Dimensões da Matéria Prima" value={form.materiaPrima} onChange={(e) => setForm({ ...form, materiaPrima: e.target.value })} className="border p-2 rounded" />
 
-      {/* Header com botão sair */}
-      <header className="flex justify-between items-center mb-4 bg-gray-800 text-white p-3 rounded-xl">
-        <h1 className="text-2xl font-bold">Kanban Programação</h1>
-        <div className="flex items-center gap-4">
-          <span>{user.email}</span>
+          <label className="flex items-center">
+            <input type="checkbox" checked={form.urgente} onChange={(e) => setForm({ ...form, urgente: e.target.checked })} className="mr-2" />
+            Urgente
+          </label>
+        </div>
+
+        <div className="flex justify-between items-center mt-2">
           <button
-            onClick={logoutUser}
-            className="bg-red-500 px-3 py-1 rounded hover:bg-red-600"
+            onClick={addCard}
+            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
           >
-            Sair
+            Adicionar OS
           </button>
-        </div>
-      </header>
 
-      {/* Formulário */}
-      <div className="mb-3 grid grid-cols-6 gap-4">
-        <input placeholder="OS" value={form.os} onChange={(e) => setForm({ ...form, os: e.target.value })} className="border p-2 rounded" />
-        <input placeholder="Desenho" value={form.desenho} onChange={(e) => setForm({ ...form, desenho: e.target.value })} className="border p-2 rounded" />
-        <input placeholder="Cliente" value={form.cliente} onChange={(e) => setForm({ ...form, cliente: e.target.value })} className="border p-2 rounded" />
-
-        {/* seleção múltipla de setores */}
-        <div className="col-span-1 border p-2 rounded flex flex-col">
-          {setores.map((s) => (
-            <label key={s} className="text-sm">
-              <input
-                type="checkbox"
-                checked={form.setores.includes(s)}
-                onChange={() => {
-                  if (form.setores.includes(s)) setForm({ ...form, setores: form.setores.filter((x) => x !== s) });
-                  else setForm({ ...form, setores: [...form.setores, s] });
-                }}
-                className="mr-2"
-              />
-              {s}
-            </label>
-          ))}
-        </div>
-
-        <input type="date" value={form.prazo} onChange={(e) => setForm({ ...form, prazo: e.target.value })} className="border p-2 rounded" />
-
-        <label className="flex items-center">
-          <input type="checkbox" checked={form.urgente} onChange={(e) => setForm({ ...form, urgente: e.target.checked })} className="mr-2" />
-          Urgente
-        </label>
-      </div>
-
-      <div className="flex justify-between items-center mt-2">
-        {/* Botão esquerdo */}
           <button
-           onClick={addCard}
-           className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-           >
-           Adicionar OS
-          </button>
-
-         {/* Botão direito */}
-           <button
             onClick={() => window.open("/finalizados", "_blank")}
             className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
+          >
             Visualizar Finalizados
-           </button>
-  </div>
-
-    </div>
-
+          </button>
+        </div>
+      </div>
 
       {/* Colunas Board */}
-      {/* <DragDropContext onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-5 gap-4 mt-6 h-[80vh]">
+      <DragDropContext onDragEnd={onDragEnd}>
+        <div className="grid grid-cols-5 gap-4 mt-6">
           {colunaOrdem.map((col) => (
             <Droppable droppableId={col} key={col}>
               {(provided) => (
-                <div ref={provided.innerRef} {...provided.droppableProps} className="bg-gray-100 rounded-2xl flex flex-col overflow-hidden h-full">
-                  <div className="sticky top-0 z-20 bg-gray-100 pt-3 pb-2">
-                    <h2 className="font-bold capitalize text-center">{colunaTitulos[col]}</h2>
+                <div className="bg-gray-100 rounded-2xl flex flex-col h-[80vh]">
+                  {/* Cabeçalho fixo */}
+                  <div className="sticky top-[55rem] z-20 bg-gray-100 pt-3 pb-2">
+                    <h2 className="font-bold capitalize text-center">
+                      {colunaTitulos[col]}
+                      {ENTRADAS.includes(col) && ` (${columns[col].length})`}
+                    </h2>
                   </div>
-                   <div className="flex-1 overflow-y-auto p-3">
+
+                  {/* Conteúdo rolável */}
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    className="flex-1 overflow-y-auto p-3"
+                  >
                     {columns[col].map((c, i) => renderCard(c, i))}
                     {provided.placeholder}
                   </div>
@@ -532,38 +486,8 @@ return (
             </Droppable>
           ))}
         </div>
-      </DragDropContext> */}
-<DragDropContext onDragEnd={onDragEnd}>
-  <div className="grid grid-cols-5 gap-4 mt-6">
-    {colunaOrdem.map((col) => (
-      <Droppable droppableId={col} key={col}>
-        {(provided) => (
-          <div className="bg-gray-100 rounded-2xl flex flex-col h-[80vh]">
+      </DragDropContext>
 
-            {/* Cabeçalho fixo */}
-            <div className="sticky top-[55rem] z-20 bg-gray-100 pt-3 pb-2">
-              <h2 className="font-bold capitalize text-center">
-                {colunaTitulos[col]}
-              </h2>
-            </div>
-
-            {/* Conteúdo rolável */}
-            <div
-              ref={provided.innerRef}
-              {...provided.droppableProps}
-              className="flex-1 overflow-y-auto p-3"
-            >
-              {columns[col].map((c, i) => renderCard(c, i))}
-              {provided.placeholder}
-            </div>
-          </div>
-        )}
-      </Droppable>
-    ))}
-  </div>
-</DragDropContext> 
-
-;
       {/* Modal editar */}
       {editando && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center">
@@ -576,6 +500,7 @@ return (
               {setores.map((s) => <option key={s}>{s}</option>)}
             </select>
             <input type="date" value={editando.prazo} onChange={(e) => setEditando({ ...editando, prazo: e.target.value })} className="border p-2 rounded w-full mb-2" />
+            <input placeholder="Dimensões da Matéria Prima" value={editando.materiaPrima || ""} onChange={(e) => setEditando({ ...editando, materiaPrima: e.target.value })} className="border p-2 rounded w-full mb-2" />
             <label className="flex items-center mb-2">
               <input type="checkbox" checked={!!editando.urgente} onChange={(e) => setEditando({ ...editando, urgente: e.target.checked })} className="mr-2" />
               Urgente
@@ -592,12 +517,3 @@ return (
 }
 
 export default App;
-
-
-/* ===================================== */
-/* src/LoginPage.jsx (ATUALIZADO)        */
-/* Substitua o seu LoginPage pelo conteúdo */
-/* ===================================== */
-
-// LoginPage.jsx deve ficar em um arquivo separado em src/LoginPage.jsx
-// Removi o código daqui para evitar o erro de import React duplicado.
