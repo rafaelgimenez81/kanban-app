@@ -465,7 +465,7 @@ function App() {
               {(provided) => (
                 <div className="bg-gray-100 rounded-2xl flex flex-col h-[80vh]">
                   {/* Cabeçalho fixo */}
-                  <div className="sticky top-[55rem] z-20 bg-gray-100 pt-3 pb-2">
+                  <div className="sticky top-0 z-20 bg-gray-100 pt-3 pb-2">
                     <h2 className="font-bold capitalize text-center">
                       {colunaTitulos[col]}
                       {ENTRADAS.includes(col) && ` (${columns[col].length})`}
