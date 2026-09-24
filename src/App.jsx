@@ -68,6 +68,7 @@ function App() {
     setores: [], // agora array
     prazo: "",
     urgente: false,
+    desenvolvimento: false,
     materiaPrima: "",
   });
   const [editando, setEditando] = useState(null);
@@ -126,6 +127,7 @@ function App() {
           setor,
           prazo: form.prazo || "",
           urgente: !!form.urgente,
+          desenvolvimento: !!form.desenvolvimento,
           materiaPrima: form.materiaPrima.trim(),
           programador: "",
           programStartISO: null,
@@ -140,7 +142,7 @@ function App() {
         await setDoc(doc(collection(db, "cards"), card.id), card);
       }
 
-      setForm({ os: "", desenho: "", cliente: "", setores: [], prazo: "", urgente: false, materiaPrima: "" });
+     setForm({ os: "", desenho: "", cliente: "", setores: [], prazo: "", urgente: false, desenvolvimento: false, materiaPrima: "" });
     } catch (error) {
       console.error("Erro ao criar cartão:", error);
       alert("Falha ao criar cartão na rede.");
@@ -284,10 +286,18 @@ function App() {
             ref={provided.innerRef}
             {...provided.draggableProps}
             {...provided.dragHandleProps}
-            className={`rounded-xl shadow-md p-2 mb-2 transition-all duration-300 ease-in-out
+            className={`relative rounded-xl shadow-md p-2 mb-2 transition-all duration-300 ease-in-out overflow-hidden
               ${card.urgente ? "border-2 border-red-500 bg-red-50" : "bg-white"}
+              ${card.desenvolvimento ? "pr-6" : ""}
             `}
           >
+            {card.desenvolvimento && (
+              <div className="absolute right-0 top-0 bottom-0 w-5 flex flex-col items-center justify-center bg-blue-600 gap-0.5">
+                <span className="text-white text-[10px] font-bold leading-none">D</span>
+                <span className="text-white text-[10px] font-bold leading-none">E</span>
+                <span className="text-white text-[10px] font-bold leading-none">V</span>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-bold text-lg text-gray-900">{card.os}</span>
@@ -434,10 +444,16 @@ function App() {
 
           <input placeholder="Dimensões da Matéria Prima" value={form.materiaPrima} onChange={(e) => setForm({ ...form, materiaPrima: e.target.value })} className="border p-2 rounded" />
 
-          <label className="flex items-center">
-            <input type="checkbox" checked={form.urgente} onChange={(e) => setForm({ ...form, urgente: e.target.checked })} className="mr-2" />
-            Urgente
-          </label>
+          <div className="flex flex-col justify-center gap-1">
+            <label className="flex items-center text-sm">
+              <input type="checkbox" checked={form.urgente} onChange={(e) => setForm({ ...form, urgente: e.target.checked })} className="mr-2" />
+              Urgente
+            </label>
+            <label className="flex items-center text-sm">
+              <input type="checkbox" checked={form.desenvolvimento} onChange={(e) => setForm({ ...form, desenvolvimento: e.target.checked })} className="mr-2" />
+              Desenvolvimento
+            </label>
+          </div>
         </div>
 
         <div className="flex justify-between items-center mt-2">
@@ -490,7 +506,7 @@ function App() {
 
       {/* Modal editar */}
       {editando && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center">
+        <div className="fixed inset-0 z-[60] bg-black/20 backdrop-blur-sm flex items-center justify-center">
           <div className="bg-white p-6 rounded-2xl shadow-lg w-96">
             <h3 className="font-bold mb-3">Editar OS</h3>
             <input value={editando.os} onChange={(e) => setEditando({ ...editando, os: e.target.value })} className="border p-2 rounded w-full mb-2" />
@@ -504,6 +520,10 @@ function App() {
             <label className="flex items-center mb-2">
               <input type="checkbox" checked={!!editando.urgente} onChange={(e) => setEditando({ ...editando, urgente: e.target.checked })} className="mr-2" />
               Urgente
+            </label>
+            <label className="flex items-center mb-2">
+              <input type="checkbox" checked={!!editando.desenvolvimento} onChange={(e) => setEditando({ ...editando, desenvolvimento: e.target.checked })} className="mr-2" />
+              Desenvolvimento
             </label>
             <div className="flex justify-end gap-2 mt-3">
               <button onClick={() => setEditando(null)} className="px-4 py-2 rounded bg-gray-400 text-white">Cancelar</button>
